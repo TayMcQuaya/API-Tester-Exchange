@@ -105,6 +105,71 @@ class ExchangeAPITester {
         });
     }
 
+    standardizeErrorMessage(error) {
+        const msg = error.message.toLowerCase();
+        
+        // Define common error patterns and their standardized messages
+        const errorPatterns = {
+            auth: {
+                patterns: ['invalid api', 'invalid key', 'invalid signature', 'api-key', 'permissions', 'unauthorized'],
+                message: {
+                    short: 'Invalid API credentials',
+                    detail: [
+                        'Check if your API key and secret are correct',
+                        'Verify if the API key is still active',
+                        'Ensure API has required permissions'
+                    ]
+                }
+            },
+            timeout: {
+                patterns: ['timeout'],
+                message: {
+                    short: 'Connection timeout',
+                    detail: [
+                        'Check your internet connection',
+                        'Exchange might be experiencing high load',
+                        'Try again in a few minutes'
+                    ]
+                }
+            },
+            connection: {
+                patterns: ['connection', 'network', 'unreachable'],
+                message: {
+                    short: 'Connection failed',
+                    detail: [
+                        'Check your internet connection',
+                        'Verify if the exchange is accessible',
+                        'Your IP might be blocked by the exchange'
+                    ]
+                }
+            },
+            rateLimit: {
+                patterns: ['rate limit', 'too many requests'],
+                message: {
+                    short: 'Rate limit exceeded',
+                    detail: [
+                        'Too many requests sent to the exchange',
+                        'Wait a few minutes and try again',
+                        'Check your API rate limits'
+                    ]
+                }
+            }
+        };
+
+        // Find matching error pattern
+        for (const [key, error] of Object.entries(errorPatterns)) {
+            if (error.patterns.some(pattern => msg.includes(pattern))) {
+                return error.message;
+            }
+        }
+
+        // Default error message
+        return {
+            short: 'API error',
+            detail: [`Specific error: ${error.message}`]
+        };
+    }
+
     async testPublicEndpoint() {
         const options = {
             hostname: this.exchange.hostname,
@@ -288,21 +353,10 @@ class ExchangeAPITester {
             console.log(`✅ ${this.exchange.name}: API working${canTrade ? ' (Trading enabled)' : ' (Read-only)'}`);
             return true;
         } catch (error) {
-            let errorMessage = `❌ ${this.exchange.name}: `;
-            
-            if (error.message.includes('Invalid response')) {
-                errorMessage += 'API endpoint not accessible';
-            } else if (error.message.includes('Invalid key')) {
-                errorMessage += 'Invalid API key';
-            } else if (error.message.includes('Permission denied')) {
-                errorMessage += 'API key lacks required permissions';
-            } else if (error.message.includes('timeout')) {
-                errorMessage += 'Connection timeout';
-            } else {
-                errorMessage += error.message;
-            }
-            
-            console.log(errorMessage);
+            const standardError = this.standardizeErrorMessage(error);
+            console.log(`\n❌ ${this.exchange.name}: ${standardError.short}`);
+            console.log('Troubleshooting steps:');
+            standardError.detail.forEach(step => console.log(`• ${step}`));
             return false;
         }
     }
@@ -328,18 +382,11 @@ async function testAllExchanges() {
     if (!foundAny) {
         console.log('\n❌ No API credentials found!');
         console.log('Add your credentials to .env file:');
-        console.log('\nFor Tokocrypto:');
-        console.log('  TOKOCRYPTO_API_KEY=your_key');
-        console.log('  TOKOCRYPTO_API_SECRET=your_secret');
-        console.log('\nFor Binance:');
-        console.log('  BINANCE_API_KEY=your_key');
-        console.log('  BINANCE_API_SECRET=your_secret');
-        console.log('\nFor Kraken:');
-        console.log('  KRAKEN_API_KEY=your_key');
-        console.log('  KRAKEN_API_SECRET=your_secret');
-        console.log('\nFor Coinbase:');
-        console.log('  COINBASE_API_KEY=your_key');
-        console.log('  COINBASE_API_SECRET=your_secret');
+        Object.values(EXCHANGES).forEach(exchange => {
+            console.log(`\nFor ${exchange.name}:`);
+            console.log(`  ${exchange.envKeyNames.apiKey}=your_key`);
+            console.log(`  ${exchange.envKeyNames.apiSecret}=your_secret`);
+        });
         return;
     }
 
