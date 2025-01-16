@@ -4,12 +4,26 @@ const https = require('https');
 
 // Exchange configurations
 const EXCHANGES = {
+    TOKOCRYPTO: {
+        name: 'Tokocrypto',
+        hostname: 'www.tokocrypto.com',
+        endpoints: {
+            public: '/open/v1/common/time',
+            private: '/open/v1/account/spot',
+            trade: '/open/v1/orders/current'
+        },
+        envKeyNames: {
+            apiKey: 'TOKOCRYPTO_API_KEY',
+            apiSecret: 'TOKOCRYPTO_API_SECRET'
+        }
+    },
     BINANCE: {
         name: 'Binance',
         hostname: 'api.binance.com',
         endpoints: {
             public: '/api/v3/time',
-            private: '/api/v3/account'
+            private: '/api/v3/account',
+            trade: '/api/v3/openOrders'
         },
         envKeyNames: {
             apiKey: 'BINANCE_API_KEY',
@@ -21,7 +35,8 @@ const EXCHANGES = {
         hostname: 'api.kraken.com',
         endpoints: {
             public: '/0/public/Time',
-            private: '/0/private/Balance'
+            private: '/0/private/Balance',
+            trade: '/0/private/OpenOrders'
         },
         envKeyNames: {
             apiKey: 'KRAKEN_API_KEY',
@@ -33,7 +48,8 @@ const EXCHANGES = {
         hostname: 'api.coinbase.com',
         endpoints: {
             public: '/v2/time',
-            private: '/v2/accounts'
+            private: '/v2/accounts',
+            trade: '/v2/orders'
         },
         envKeyNames: {
             apiKey: 'COINBASE_API_KEY',
@@ -47,7 +63,7 @@ class ExchangeAPITester {
         this.exchange = exchange;
         this.apiKey = process.env[exchange.envKeyNames.apiKey];
         this.apiSecret = process.env[exchange.envKeyNames.apiSecret];
-        this.timeout = 10000; // 10 second timeout
+        this.timeout = 30000; // 30 second timeout
     }
 
     hasCredentials() {
@@ -77,7 +93,6 @@ class ExchangeAPITester {
                 reject(new Error(`Connection error: ${error.message}`));
             });
 
-            // Add timeout
             req.setTimeout(this.timeout, () => {
                 req.destroy();
                 reject(new Error(`Connection timeout to ${this.exchange.name}`));
@@ -95,7 +110,11 @@ class ExchangeAPITester {
             hostname: this.exchange.hostname,
             path: this.exchange.endpoints.public,
             method: 'GET',
-            timeout: this.timeout
+            timeout: this.timeout,
+            headers: {
+                'User-Agent': 'APITester/1.0',
+                'Accept': 'application/json'
+            }
         };
 
         return this.makeRequest(options);
@@ -103,26 +122,41 @@ class ExchangeAPITester {
 
     async testPrivateEndpoint() {
         const timestamp = Date.now();
-        const { options, postData } = this.getRequestConfig(timestamp);
+        const { options, postData } = this.getRequestConfig(timestamp, this.exchange.endpoints.private);
         options.timeout = this.timeout;
         
         return this.makeRequest(options, postData);
     }
 
-    getRequestConfig(timestamp) {
+    async testTradePermissions() {
+        const timestamp = Date.now();
+        const { options, postData } = this.getRequestConfig(timestamp, this.exchange.endpoints.trade);
+        options.timeout = this.timeout;
+
+        try {
+            await this.makeRequest(options, postData);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    getRequestConfig(timestamp, endpoint) {
         try {
             switch(this.exchange.name) {
+                case 'Tokocrypto':
                 case 'Binance': {
                     const queryString = `timestamp=${timestamp}`;
-                    const signature = this.generateBinanceSignature(queryString);
+                    const signature = this.generateSignature(queryString);
                     
                     return {
                         options: {
                             hostname: this.exchange.hostname,
-                            path: `${this.exchange.endpoints.private}?${queryString}&signature=${signature}`,
+                            path: `${endpoint}?${queryString}&signature=${signature}`,
                             method: 'GET',
                             headers: {
-                                'X-MBX-APIKEY': this.apiKey
+                                'X-MBX-APIKEY': this.apiKey,
+                                'Content-Type': 'application/json'
                             }
                         }
                     };
@@ -130,13 +164,12 @@ class ExchangeAPITester {
                 
                 case 'Kraken': {
                     const nonce = timestamp;
-                    const path = this.exchange.endpoints.private;
-                    const signature = this.generateKrakenSignature(path, nonce);
+                    const signature = this.generateKrakenSignature(endpoint, nonce);
                     
                     return {
                         options: {
                             hostname: this.exchange.hostname,
-                            path: path,
+                            path: endpoint,
                             method: 'POST',
                             headers: {
                                 'API-Key': this.apiKey,
@@ -147,21 +180,22 @@ class ExchangeAPITester {
                         postData: `nonce=${nonce}`
                     };
                 }
-                
+
                 case 'Coinbase': {
-                    const path = this.exchange.endpoints.private;
-                    const signature = this.generateCoinbaseSignature(timestamp, 'GET', path, '');
+                    const timestamp = Math.floor(Date.now() / 1000);
+                    const method = 'GET';
+                    const signature = this.generateCoinbaseSignature(timestamp, method, endpoint, '');
                     
                     return {
                         options: {
                             hostname: this.exchange.hostname,
-                            path: path,
-                            method: 'GET',
+                            path: endpoint,
+                            method: method,
                             headers: {
                                 'CB-ACCESS-KEY': this.apiKey,
                                 'CB-ACCESS-SIGN': signature,
                                 'CB-ACCESS-TIMESTAMP': timestamp,
-                                'CB-VERSION': '2017-12-09'
+                                'CB-VERSION': '2021-04-29'
                             }
                         }
                     };
@@ -175,14 +209,14 @@ class ExchangeAPITester {
         }
     }
 
-    generateBinanceSignature(queryString) {
+    generateSignature(queryString) {
         try {
             return crypto
                 .createHmac('sha256', this.apiSecret)
                 .update(queryString)
                 .digest('hex');
         } catch (error) {
-            throw new Error(`Failed to generate Binance signature: ${error.message}`);
+            throw new Error(`Failed to generate signature: ${error.message}`);
         }
     }
 
@@ -212,8 +246,9 @@ class ExchangeAPITester {
 
     hasError(response) {
         switch(this.exchange.name) {
+            case 'Tokocrypto':
             case 'Binance':
-                return response.code !== undefined;
+                return response.code !== 0;
             case 'Kraken':
                 return response.error && response.error.length > 0;
             case 'Coinbase':
@@ -226,8 +261,9 @@ class ExchangeAPITester {
     getErrorMessage(response) {
         try {
             switch(this.exchange.name) {
+                case 'Tokocrypto':
                 case 'Binance':
-                    return response.msg || 'Unknown Binance error';
+                    return response.msg || `Unknown ${this.exchange.name} error`;
                 case 'Kraken':
                     return response.error?.[0] || 'Unknown Kraken error';
                 case 'Coinbase':
@@ -240,105 +276,45 @@ class ExchangeAPITester {
         }
     }
 
-    getErrorDetails(error) {
-        const errorMsg = error.message.toLowerCase();
-        
-        // Define common error patterns and their detailed explanations
-        const errorPatterns = {
-            'timeout': {
-                title: `Connection timeout to ${this.exchange.name}`,
-                reason: 'The server took too long to respond',
-                solutions: [
-                    'Check your internet connection',
-                    'The exchange servers might be experiencing high load',
-                    'Try again in a few minutes'
-                ]
-            },
-            'connection error': {
-                title: `Could not connect to ${this.exchange.name}`,
-                reason: 'Unable to establish a connection to the exchange',
-                solutions: [
-                    'Verify your internet connection',
-                    'Check if the exchange website is accessible in your browser',
-                    'Your network might be blocking the connection'
-                ]
-            },
-            'invalid key': {
-                title: 'API key is not working',
-                reason: 'The exchange rejected your API credentials',
-                solutions: [
-                    'Verify your API key and secret are copied correctly',
-                    'Check if the API key is still active in your exchange account',
-                    'Ensure the API key has the necessary permissions (read access)',
-                    'Generate a new API key if the problem persists'
-                ]
-            },
-            'permission denied': {
-                title: 'Permission denied',
-                reason: 'Your API key lacks the required permissions',
-                solutions: [
-                    'Check your API key permissions in your exchange account',
-                    'Enable "read" or "query" permissions for the API key',
-                    'You might need to generate a new API key with correct permissions'
-                ]
-            }
-        };
-
-        // Find matching error pattern
-        let errorDetail = null;
-        for (const [pattern, details] of Object.entries(errorPatterns)) {
-            if (errorMsg.includes(pattern)) {
-                errorDetail = details;
-                break;
-            }
-        }
-
-        // If no specific pattern found, provide a generic error
-        if (!errorDetail) {
-            errorDetail = {
-                title: `Error: ${error.message}`,
-                reason: 'An unexpected error occurred',
-                solutions: [
-                    'Check if your API credentials are correct',
-                    'Verify the exchange is operational',
-                    'Try again in a few minutes'
-                ]
-            };
-        }
-
-        return errorDetail;
-    }
-
     async test() {
-        console.log(`\n📡 Testing ${this.exchange.name} API...`);
-        
         try {
+            // Test basic connectivity
             await this.testPublicEndpoint();
-            console.log(`✅ Connected to ${this.exchange.name}`);
-            
             await this.testPrivateEndpoint();
-            console.log('✅ API key is working');
+            
+            // Test trading permissions
+            const canTrade = await this.testTradePermissions();
+            
+            console.log(`✅ ${this.exchange.name}: API working${canTrade ? ' (Trading enabled)' : ' (Read-only)'}`);
             return true;
         } catch (error) {
-            const details = this.getErrorDetails(error);
-            console.log(`❌ ${details.title}`);
-            console.log(`  Reason: ${details.reason}`);
-            console.log('  How to fix:');
-            details.solutions.forEach(solution => {
-                console.log(`    • ${solution}`);
-            });
+            let errorMessage = `❌ ${this.exchange.name}: `;
+            
+            if (error.message.includes('Invalid response')) {
+                errorMessage += 'API endpoint not accessible';
+            } else if (error.message.includes('Invalid key')) {
+                errorMessage += 'Invalid API key';
+            } else if (error.message.includes('Permission denied')) {
+                errorMessage += 'API key lacks required permissions';
+            } else if (error.message.includes('timeout')) {
+                errorMessage += 'Connection timeout';
+            } else {
+                errorMessage += error.message;
+            }
+            
+            console.log(errorMessage);
             return false;
         }
     }
 }
 
 async function testAllExchanges() {
-    console.log('🔍 Detecting configured exchanges...\n');
+    console.log('\n🔐 Crypto Exchange API Tester');
+    console.log('============================');
     
     let foundAny = false;
     const results = [];
 
-    // Test each exchange
     for (const exchange of Object.values(EXCHANGES)) {
         const tester = new ExchangeAPITester(exchange);
         
@@ -350,9 +326,12 @@ async function testAllExchanges() {
     }
 
     if (!foundAny) {
-        console.log('❌ No API credentials found!');
-        console.log('\nPlease add your credentials to .env file:');
-        console.log('For Binance:');
+        console.log('\n❌ No API credentials found!');
+        console.log('Add your credentials to .env file:');
+        console.log('\nFor Tokocrypto:');
+        console.log('  TOKOCRYPTO_API_KEY=your_key');
+        console.log('  TOKOCRYPTO_API_SECRET=your_secret');
+        console.log('\nFor Binance:');
         console.log('  BINANCE_API_KEY=your_key');
         console.log('  BINANCE_API_SECRET=your_secret');
         console.log('\nFor Kraken:');
@@ -364,14 +343,16 @@ async function testAllExchanges() {
         return;
     }
 
-    // Show summary
-    console.log('\n📊 Summary:');
-    results.forEach(({ exchange, success }) => {
-        console.log(`${exchange}: ${success ? '✅ Working' : '❌ Not Working'}`);
-    });
+    if (results.length > 1) {
+        console.log('\n📊 Summary');
+        console.log('===============');
+        results.forEach(({ exchange, success }) => {
+            console.log(`${exchange}: ${success ? '✅ Working' : '❌ Not Working'}`);
+        });
+    }
 }
 
-// Run all tests
+// Run the tests
 testAllExchanges().catch(error => {
-    console.error('❌ Fatal error:', error.message);
+    console.error('\n❌ Fatal error:', error.message);
 });

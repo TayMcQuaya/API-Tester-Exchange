@@ -1,26 +1,30 @@
 # Crypto Exchange API Tester 🚀
 
-A simple tool to test your API connections with major cryptocurrency exchanges (Binance, Kraken, and Coinbase).
+A simple tool to verify API connectivity and trading permissions for major cryptocurrency exchanges.
 
 ## Features ✨
 
-- Automatically detects configured exchanges
-- Tests both public and private API endpoints
-- Provides detailed error messages and solutions
-- Supports multiple exchanges:
+- Automatic exchange detection from configured credentials
+- Comprehensive API validation:
+  - Public endpoint connectivity
+  - Private endpoint authentication
+  - Trading permission verification
+- Clean, concise output with specific error messages
+- Support for multiple exchanges:
   - Binance
   - Kraken
   - Coinbase
+  - Tokocrypto
 
 ## Prerequisites 📋
 
-Before you begin, make sure you have:
+Before using this tool, ensure you have:
 - Node.js installed (version 12 or higher)
-- API credentials from any of the supported exchanges
+- Valid API credentials from any supported exchange
 
 ## Installation 🔧
 
-1. Clone or download this repository:
+1. Clone the repository:
 ```bash
 git clone <repository-url>
 cd crypto-api-tester
@@ -31,25 +35,31 @@ cd crypto-api-tester
 npm install
 ```
 
-3. Create a `.env` file in the project root:
+3. Create your environment file:
 ```bash
 touch .env
 ```
 
-4. Add your API credentials to the `.env` file:
+4. Configure your API credentials in the `.env` file:
 ```env
-# Binance credentials (if you have them)
-BINANCE_API_KEY=your_binance_key
-BINANCE_API_SECRET=your_binance_secret
+# Tokocrypto credentials
+TOKOCRYPTO_API_KEY=your_key_here
+TOKOCRYPTO_API_SECRET=your_secret_here
 
-# Kraken credentials (if you have them)
-KRAKEN_API_KEY=your_kraken_key
-KRAKEN_API_SECRET=your_kraken_secret
+# Binance credentials
+BINANCE_API_KEY=your_key_here
+BINANCE_API_SECRET=your_secret_here
 
-# Coinbase credentials (if you have them)
-COINBASE_API_KEY=your_coinbase_key
-COINBASE_API_SECRET=your_coinbase_secret
+# Kraken credentials
+KRAKEN_API_KEY=your_key_here
+KRAKEN_API_SECRET=your_secret_here
+
+# Coinbase credentials
+COINBASE_API_KEY=your_key_here
+COINBASE_API_SECRET=your_secret_here
 ```
+
+Note: You only need to add credentials for the exchanges you want to test.
 
 ## Usage 🎯
 
@@ -58,79 +68,93 @@ Run the tester:
 node test-api.js
 ```
 
-The script will automatically detect which exchange credentials you've configured and test them.
+The tool will automatically detect and test all exchanges for which you have configured credentials.
 
-### Example Output
+### Example Outputs
 
-Successful test:
+Successful tests:
 ```
-🔍 Detecting configured exchanges...
-
-📡 Testing Kraken API...
-✅ Connected to Kraken
-✅ API key is working
-
-📊 Summary:
-Kraken: ✅ Working
+🔐 Crypto Exchange API Tester
+============================
+✅ Tokocrypto: API working (Trading enabled)
+✅ Binance: API working (Trading enabled)
+✅ Kraken: API working (Read-only)
 ```
 
-Failed test with helpful message:
+Failed test:
 ```
-🔍 Detecting configured exchanges...
-
-📡 Testing Kraken API...
-❌ API key is not working
-  Reason: The exchange rejected your API credentials
-  How to fix:
-    • Verify your API key and secret are copied correctly
-    • Check if the API key is still active in your exchange account
-    • Ensure the API key has the necessary permissions (read access)
-    • Generate a new API key if the problem persists
-
-📊 Summary:
-Kraken: ❌ Not Working
+🔐 Crypto Exchange API Tester
+============================
+✅ Tokocrypto: API working (Trading enabled)
+❌ Binance: Invalid API key
+❌ Kraken: Connection timeout
 ```
 
-## Troubleshooting 🔍
+## Understanding Results 📊
 
-### Common Issues
+The tool performs three levels of verification for each exchange:
+1. Public API connectivity
+2. Private API authentication
+3. Trading permission validation
 
-1. **No API credentials found**
-   - Make sure your `.env` file exists and contains the correct API credentials
-   - Check that the variable names match exactly (e.g., `KRAKEN_API_KEY`)
-
-2. **Connection timeout**
-   - Check your internet connection
-   - Verify that the exchange's API servers are operational
-   - Try running the test again
-
-3. **Invalid API key**
-   - Verify your API credentials are copied correctly
-   - Check if the API key is still active in your exchange account
-   - Ensure the API key has the necessary permissions
-
-4. **Permission denied**
-   - Check your API key permissions in your exchange account
-   - Make sure the key has at least "read" or "query" access
+Status indicators:
+- `API working (Trading enabled)`: Full access with trading capabilities
+- `API working (Read-only)`: Basic access without trading permissions
+- Error messages indicate specific issues with detailed reasons
 
 ## Security Notes 🔒
 
+- Use read-only API keys for initial testing
 - Never share your API credentials
-- Use API keys with read-only permissions for testing
-- Don't commit your `.env` file to version control
+- Keep your .env file secure and excluded from version control
 - Regularly rotate your API keys
+- Test trading features with small amounts first
+
+## Troubleshooting 🔍
+
+Common issues and solutions:
+
+1. **Connection Timeout**
+   - Check your internet connection
+   - Verify if the exchange is accessible
+   - Try again in a few minutes
+
+2. **Invalid API Key**
+   - Double-check credentials are copied correctly
+   - Verify if the key is still active
+   - Check if the key hasn't expired
+
+3. **Permission Denied**
+   - Review API key permissions in your exchange account
+   - Ensure necessary access levels are enabled
+   - Consider generating a new key with correct permissions
+
+4. **No Trading Permission**
+   - Verify trading is enabled for your API key
+   - Check if your account has trading privileges
+   - Confirm API key has required trading permissions
+
+## Limitations ⚠️
+
+This tool verifies API connectivity and permissions but does not guarantee:
+- Order execution capability
+- Market liquidity
+- Fee levels
+- Server stability during high volatility
+- Rate limit availability
 
 ## Contributing 🤝
 
-Found a bug or want to add support for another exchange? Feel free to:
-1. Open an issue
-2. Submit a pull request
-3. Suggest improvements
+Contributions are welcome! You can:
+- Report issues
+- Suggest improvements
+- Add support for additional exchanges
+- Submit pull requests
 
 ## License 📄
 
-This project is open source and available under the MIT License.
+This project is open source under the MIT License.
 
 ---
 
-Need help? Open an issue in the repository! 💡
+Questions or issues? Open an issue in the repository! 💡
