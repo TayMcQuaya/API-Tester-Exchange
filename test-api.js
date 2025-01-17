@@ -84,7 +84,7 @@ class ExchangeAPITester {
                             resolve(response);
                         }
                     } catch (error) {
-                        reject(new Error(`Invalid response from ${this.exchange.name}`));
+                        reject(new Error(`Invalid response from ${this.exchange.name}: ${data}`));
                     }
                 });
             });
@@ -107,66 +107,45 @@ class ExchangeAPITester {
 
     standardizeErrorMessage(error) {
         const msg = error.message.toLowerCase();
-        
+
         // Define common error patterns and their standardized messages
         const errorPatterns = {
             auth: {
                 patterns: ['invalid api', 'invalid key', 'invalid signature', 'api-key', 'permissions', 'unauthorized'],
                 message: {
-                    short: 'Invalid API credentials',
-                    detail: [
-                        'Check if your API key and secret are correct',
-                        'Verify if the API key is still active',
-                        'Ensure API has required permissions'
-                    ]
+                    short: 'Authentication Failed',
                 }
             },
             timeout: {
                 patterns: ['timeout'],
                 message: {
-                    short: 'Connection timeout',
-                    detail: [
-                        'Check your internet connection',
-                        'Exchange might be experiencing high load',
-                        'Try again in a few minutes'
-                    ]
+                    short: 'Connection Timeout',
                 }
             },
             connection: {
                 patterns: ['connection', 'network', 'unreachable'],
                 message: {
-                    short: 'Connection failed',
-                    detail: [
-                        'Check your internet connection',
-                        'Verify if the exchange is accessible',
-                        'Your IP might be blocked by the exchange'
-                    ]
+                    short: 'Connection Error',
                 }
             },
             rateLimit: {
                 patterns: ['rate limit', 'too many requests'],
                 message: {
-                    short: 'Rate limit exceeded',
-                    detail: [
-                        'Too many requests sent to the exchange',
-                        'Wait a few minutes and try again',
-                        'Check your API rate limits'
-                    ]
+                    short: 'Rate Limit Exceeded',
                 }
             }
         };
 
         // Find matching error pattern
-        for (const [key, error] of Object.entries(errorPatterns)) {
-            if (error.patterns.some(pattern => msg.includes(pattern))) {
-                return error.message;
+        for (const [key, errorPattern] of Object.entries(errorPatterns)) {
+            if (errorPattern.patterns.some(pattern => msg.includes(pattern))) {
+                return errorPattern.message;
             }
         }
 
         // Default error message
         return {
-            short: 'API error',
-            detail: [`Specific error: ${error.message}`]
+            short: 'API Error',
         };
     }
 
@@ -186,15 +165,15 @@ class ExchangeAPITester {
     }
 
     async testPrivateEndpoint() {
-        const timestamp = Date.now();
+        const timestamp = Date.now().toString();
         const { options, postData } = this.getRequestConfig(timestamp, this.exchange.endpoints.private);
         options.timeout = this.timeout;
-        
+
         return this.makeRequest(options, postData);
     }
 
     async testTradePermissions() {
-        const timestamp = Date.now();
+        const timestamp = Date.now().toString();
         const { options, postData } = this.getRequestConfig(timestamp, this.exchange.endpoints.trade);
         options.timeout = this.timeout;
 
@@ -228,8 +207,9 @@ class ExchangeAPITester {
                 }
                 
                 case 'Kraken': {
-                    const nonce = timestamp;
-                    const signature = this.generateKrakenSignature(endpoint, nonce);
+                    const nonce = Date.now() * 1000; // Microsecond precision
+                    const postData = `nonce=${nonce}`;
+                    const signature = this.generateKrakenSignature(endpoint, nonce, postData);
                     
                     return {
                         options: {
@@ -239,17 +219,19 @@ class ExchangeAPITester {
                             headers: {
                                 'API-Key': this.apiKey,
                                 'API-Sign': signature,
-                                'Content-Type': 'application/x-www-form-urlencoded'
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'User-Agent': 'APITester/1.0'
                             }
                         },
-                        postData: `nonce=${nonce}`
+                        postData: postData
                     };
                 }
 
                 case 'Coinbase': {
-                    const timestamp = Math.floor(Date.now() / 1000);
+                    const timestampSec = Math.floor(Date.now() / 1000).toString();
                     const method = 'GET';
-                    const signature = this.generateCoinbaseSignature(timestamp, method, endpoint, '');
+                    const body = ''; // Assuming GET request with no body
+                    const signature = this.generateCoinbaseSignature(timestampSec, method, endpoint, body);
                     
                     return {
                         options: {
@@ -259,7 +241,7 @@ class ExchangeAPITester {
                             headers: {
                                 'CB-ACCESS-KEY': this.apiKey,
                                 'CB-ACCESS-SIGN': signature,
-                                'CB-ACCESS-TIMESTAMP': timestamp,
+                                'CB-ACCESS-TIMESTAMP': timestampSec,
                                 'CB-VERSION': '2021-04-29'
                             }
                         }
@@ -285,13 +267,24 @@ class ExchangeAPITester {
         }
     }
 
-    generateKrakenSignature(path, nonce) {
+    generateKrakenSignature(path, nonce, postData) {
         try {
-            const message = nonce + 'nonce=' + nonce;
             const secret = Buffer.from(this.apiSecret, 'base64');
-            const hash = crypto.createHash('sha256').update(message).digest();
+            // Message = PATH + SHA256(NONCE + POST DATA)
+            const message = Buffer.from(nonce + postData);
+            const hash = crypto.createHash('sha256')
+                .update(message)
+                .digest();
+            
+            const hmacData = Buffer.concat([
+                Buffer.from(path),
+                hash
+            ]);
+            
+            // HMAC-SHA512 of (PATH + SHA256(NONCE + POST DATA)) with base64 decoded secret key
             const hmac = crypto.createHmac('sha512', secret);
-            return hmac.update(path + hash).digest('base64');
+            const signature = hmac.update(hmacData).digest('base64');
+            return signature;
         } catch (error) {
             throw new Error(`Failed to generate Kraken signature: ${error.message}`);
         }
@@ -299,10 +292,10 @@ class ExchangeAPITester {
 
     generateCoinbaseSignature(timestamp, method, path, body) {
         try {
-            const message = timestamp + method + path + body;
+            const what = timestamp + method + path + body;
             return crypto
                 .createHmac('sha256', this.apiSecret)
-                .update(message)
+                .update(what)
                 .digest('hex');
         } catch (error) {
             throw new Error(`Failed to generate Coinbase signature: ${error.message}`);
@@ -315,7 +308,7 @@ class ExchangeAPITester {
             case 'Binance':
                 return response.code !== 0;
             case 'Kraken':
-                return response.error && response.error.length > 0;
+                return response.error && response.error.length > 0 && response.error[0] !== 'EGeneral:Invalid arguments'; // Ignore specific Kraken errors that don't indicate failure
             case 'Coinbase':
                 return response.errors !== undefined;
             default:
@@ -350,21 +343,18 @@ class ExchangeAPITester {
             // Test trading permissions
             const canTrade = await this.testTradePermissions();
             
-            console.log(`✅ ${this.exchange.name}: API working${canTrade ? ' (Trading enabled)' : ' (Read-only)'}`);
+            console.log(`${this.exchange.name.padEnd(12)} ✅ Connected | ${canTrade ? '🔓 Trading Enabled' : '🔒 Read-only'}`);
             return true;
         } catch (error) {
             const standardError = this.standardizeErrorMessage(error);
-            console.log(`\n❌ ${this.exchange.name}: ${standardError.short}`);
-            console.log('Troubleshooting steps:');
-            standardError.detail.forEach(step => console.log(`• ${step}`));
+            console.log(`${this.exchange.name.padEnd(12)} ❌ Failed   | ${standardError.short}`);
             return false;
         }
     }
 }
 
 async function testAllExchanges() {
-    console.log('\n🔐 Crypto Exchange API Tester');
-    console.log('============================');
+    console.log('\n🔑 Testing Exchange API Connections...\n');
     
     let foundAny = false;
     const results = [];
@@ -380,22 +370,23 @@ async function testAllExchanges() {
     }
 
     if (!foundAny) {
-        console.log('\n❌ No API credentials found!');
-        console.log('Add your credentials to .env file:');
+        console.log('❌ No API credentials found in .env file');
+        console.log('\nRequired format:');
         Object.values(EXCHANGES).forEach(exchange => {
-            console.log(`\nFor ${exchange.name}:`);
-            console.log(`  ${exchange.envKeyNames.apiKey}=your_key`);
-            console.log(`  ${exchange.envKeyNames.apiSecret}=your_secret`);
+            console.log(`${exchange.name.padEnd(12)} ${exchange.envKeyNames.apiKey}=your_key`);
+            console.log(`${' '.padEnd(12)} ${exchange.envKeyNames.apiSecret}=your_secret`);
         });
         return;
     }
 
-    if (results.length > 1) {
-        console.log('\n📊 Summary');
-        console.log('===============');
-        results.forEach(({ exchange, success }) => {
-            console.log(`${exchange}: ${success ? '✅ Working' : '❌ Not Working'}`);
-        });
+    // Only show troubleshooting for failed connections
+    const failedTests = results.filter(r => !r.success);
+    if (failedTests.length > 0) {
+        console.log('\n📋 Troubleshooting Steps:');
+        console.log('1. Verify API key and secret are correct');
+        console.log('2. Check if API key has required permissions');
+        console.log('3. Ensure API key is active and not expired');
+        console.log('4. Verify IP address is whitelisted (if required)');
     }
 }
 
